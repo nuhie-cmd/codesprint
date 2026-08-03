@@ -3,16 +3,7 @@ import math
 
 from dijikstra import build_graph
 from room_lookup import get_node
-
-
-coordinates = {
-    1:(0,0),
-    2:(2,1),
-    3:(1,3),
-    4:(3,4),
-    5:(5,3),
-    6:(4,6)
-}
+from database import get_nodes, get_edges
 
 
 def heuristic(node, goal, coordinates):
@@ -76,26 +67,27 @@ def astar(graph, coordinates, start, goal):
     return [], float("inf")
 
 
-if __name__ == "__main__":
+#if __name__ == "__main__":
 
-    nodes = [1,2,3,4,5,6]
+ #   nodes = get_nodes()
+  #  edges = get_edges()
 
-    edges = [
-        {"from":1,"to":2,"distance":5},
-        {"from":1,"to":3,"distance":3},
-        {"from":2,"to":4,"distance":4},
-        {"from":3,"to":4,"distance":2},
-        {"from":3,"to":5,"distance":6},
-        {"from":4,"to":6,"distance":1},
-        {"from":5,"to":6,"distance":2},
-    ]
+   # coordinates = {
+    #node["id"]: (node["x"], node["y"])
+    #for node in nodes
+    #}
 
-    graph = build_graph(nodes, edges)
+    #node_ids = [node["id"] for node in nodes]
 
-    start = get_node("Entrance")
-    end = get_node("AI Lab")
+    #graph = build_graph(node_ids, edges)
 
-    path, distance = astar(graph, coordinates, start, end)
 
-    print("Path:", path)
-    print("Distance:", distance)
+    #start = get_node("Main Block")
+    #end = get_node("AI ML Lab 1")
+    
+    #if start is None or end is None:
+     #   print("Invalid room name.")
+    #else:
+     #   path, distance = astar(graph, coordinates, start, end)
+      #  print("Path:", path)
+       # print("Distance:", distance)

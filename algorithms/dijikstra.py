@@ -1,14 +1,15 @@
 import heapq
+from database import get_nodes, get_edges
 
 
-def build_graph(nodes, edges):
+def build_graph(node_ids, edges):
 
-    graph = {node: [] for node in nodes}
+    graph = {node: [] for node in node_ids}
 
     for edge in edges:
-        src = edge["from"]
-        dest = edge["to"]
-        dist = edge["distance"]
+        src = edge["from_node"]
+        dest = edge["to_node"]
+        dist = edge["weight"]
 
         graph[src].append((dest, dist))
         graph[dest].append((src, dist))
@@ -64,23 +65,16 @@ def shortest_path(graph, start, end):
     return path, distances[end]
 
 
-if __name__ == "__main__":
+#if __name__ == "__main__":
 
-    nodes = [1,2,3,4,5,6]
+ #   nodes = get_nodes()
+  #  edges = get_edges()
 
-    edges = [
-        {"from":1,"to":2,"distance":5},
-        {"from":1,"to":3,"distance":3},
-        {"from":2,"to":4,"distance":4},
-        {"from":3,"to":4,"distance":2},
-        {"from":3,"to":5,"distance":6},
-        {"from":4,"to":6,"distance":1},
-        {"from":5,"to":6,"distance":2},
-    ]
+   # node_ids = [node["id"] for node in nodes]
 
-    graph = build_graph(nodes, edges)
+    #graph = build_graph(node_ids, edges)
 
-    path, distance = shortest_path(graph, 1, 6)
+    #path, distance = shortest_path(graph, 1, 6)
 
-    print("Path:", path)
-    print("Distance:", distance)
+    #print("Path:", path)
+    #print("Distance:", distance)
