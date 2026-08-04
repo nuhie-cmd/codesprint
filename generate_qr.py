@@ -1,38 +1,35 @@
 import os
+import sqlite3
 import qrcode
-import mysql.connector
 
-# Connect to the database
-conn = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="nuhie043",
-    database="smart_navigation"
-)
+# Path to SQLite database
+DB_PATH = "nav.db"
 
-cursor = conn.cursor(dictionary=True)
+# Connect to database
+conn = sqlite3.connect(DB_PATH)
+conn.row_factory = sqlite3.Row
+cursor = conn.cursor()
 
-# Get all nodes from the database
-cursor.execute("SELECT id, name FROM nodes")
+# Get all nodes
+cursor.execute("SELECT id, name FROM nodes ORDER BY id")
 nodes = cursor.fetchall()
 
-# Folder to save QR codes
+# Output folder
 output_folder = "frontend/qr_codes"
 os.makedirs(output_folder, exist_ok=True)
 
-# Generate one QR per node
 for node in nodes:
     node_id = node["id"]
     node_name = node["name"]
 
-    # Payload stored inside the QR
+    # QR payload
     payload = f"SDNS:{node_id}"
 
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_M,
         box_size=10,
-        border=4
+        border=4,
     )
 
     qr.add_data(payload)
@@ -40,12 +37,14 @@ for node in nodes:
 
     img = qr.make_image(fill_color="black", back_color="white")
 
-    filename = node_name.lower().replace(" ", "_").replace("/", "-") + ".png"
-    img.save(os.path.join(output_folder, filename))
+    filename = (
+        node_name.lower()
+        .replace(" ", "_")
+        .replace("&", "and")
+    )
 
-    print(f"{filename} -> {payload}")
+    img.save(os.path.join(output_folder, f"{filename}.png"))
 
-cursor.close()
+print(f"Generated {len(nodes)} QR codes successfully.")
+
 conn.close()
-
-print("QR codes generated successfully.")
