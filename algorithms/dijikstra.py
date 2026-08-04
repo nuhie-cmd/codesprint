@@ -1,3 +1,4 @@
+
 import heapq
 from database import get_nodes, get_edges
 
@@ -77,4 +78,3 @@ def shortest_path(graph, start, end):
     #path, distance = shortest_path(graph, 1, 6)
 
     #print("Path:", path)
-    #print("Distance:", distance)

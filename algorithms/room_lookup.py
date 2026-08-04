@@ -1,3 +1,4 @@
+
 room_map = {
     "main block": 1,
     "mechanical block": 2,
@@ -25,4 +26,3 @@ def get_node(room):
   #  end = get_node("AI Lab")
 
    # print("Start Node:", start)
-    #print("End Node:", end)
