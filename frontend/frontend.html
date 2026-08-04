@@ -321,18 +321,7 @@
 
       <div style="display:flex; gap:10px; align-items:center;">
 
-        <select id="buildingSelect" style="padding:8px 12px;border-radius:8px;border:1px solid #ccc;">
-          <option value="main">Main Block</option>
-          <option value="mechanical">Mechanical Block</option>
-        </select>
-
-        <select id="floorSelect" style="padding:8px 12px;border-radius:8px;border:1px solid #ccc;">
-          <option value="ground">Ground Floor</option>
-          <option value="first">First Floor</option>
-          <option value="second">Second Floor</option>
-          <option value="third">Third Floor</option>
-        </select>
-
+        
       </div>
 
     </div>
@@ -424,83 +413,147 @@
 
 <script>
 /* ======================================================================
-   1. DATA MODEL — mirrors what would live in a DBMS "locations" table
-      (id, name, code, type, x, y) and an "edges" table (a, b, distance_m)
+   CONFIG — points at the FastAPI backend (main.py / uvicorn main:app)
    ====================================================================== */
-/* ==========================================================
-   SAHYADRI CAMPUS DATA
-========================================================== */
+const API_URL = "http://localhost:8000";
 
-const ICONS = {
-
-  gate: "M4 4h16v16H4z M8 4v16 M16 4v16",
-
-  department: "M4 18V6h16v12 M8 18V10 M12 18V10 M16 18V10",
-
-  office: "M4 4h16v16H4z M4 10h16",
-
-  lab: "M10 3v6L5 18a2 2 0 002 3h10a2 2 0 002-3l-5-9V3",
-
-  hall: "M4 20V10l8-6 8 6v10",
-
-  library: "M4 4h4v16H4z M10 4h4v16h-4z M16 4h4v16h-4z",
-
-  utility: "M12 3v18 M3 12h18",
-
-  stairs: "M6 18h12M8 15l3-3 3 3M8 9l3-3 3 3",
-
-  lift: "M12 3v18 M8 7l4-4 4 4 M8 17l4 4 4-4",
-
-  junction: ""
-
-};
-/* ==========================================================
-   BUILD GRAPH
-========================================================== */
-
-
-/* ==========================================================
-   FLOOR SWITCHING
-========================================================== */
-
+let locations = [];      // [{id, name, type, x, y, floor, px, py}]
+let edgesData = [];      // [{id, from_node, to_node, weight}]
+let nodeById = {};       // id -> location object (with px, py laid out on the svg)
+let routeLineEl = null;
+let fromNode = null, toNode = null;
 
 /* ======================================================================
-   2. DIJKSTRA'S SHORTEST PATH — core DSA component
+   1. LOAD DATA FROM BACKEND
    ====================================================================== */
+async function loadLocations() {
+  const res = await fetch(`${API_URL}/nodes`);
+  locations = await res.json();
+}
+
+async function loadEdges() {
+  try {
+    const res = await fetch(`${API_URL}/edges`);
+    if (res.ok) { edgesData = await res.json(); return; }
+  } catch (e) { /* fall through */ }
+  edgesData = [];
+}
 
 /* ======================================================================
-   3. LIGHTWEIGHT FUZZY SEARCH ("AI"-style approximate matching)
-      Combines substring, prefix and Levenshtein-distance scoring so
-      typos like "libary" or "aiml lab" still resolve correctly.
+   2. LAYOUT — scale raw x/y coordinates from the DB onto the 800x520 svg
    ====================================================================== */
-======================================================================
+function layoutNodes() {
+  const pad = 60;
+  const xs = locations.map(n => n.x);
+  const ys = locations.map(n => n.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const spanX = (maxX - minX) || 1;
+  const spanY = (maxY - minY) || 1;
+  const scale = Math.min((800 - pad * 2) / spanX, (520 - pad * 2) / spanY);
+
+  nodeById = {};
+  locations.forEach(n => {
+    n.px = pad + (n.x - minX) * scale;
+    n.py = pad + (n.y - minY) * scale;
+    nodeById[n.id] = n;
+  });
+}
+
+/* ======================================================================
+   3. VISUAL CATEGORY — maps a node's name/type to a legend color + icon
+   ====================================================================== */
+function categorize(n) {
+  const name = (n.name || "").toLowerCase();
+  if (n.type === "junction") return { color: "var(--line)", icon: "junction" };
+  if (name.includes("lab")) return { color: "#8BC34A", icon: "lab" };
+  if (name.includes("hall")) return { color: "#9C27B0", icon: "hall" };
+  if (name.includes("office") || name.includes("cabin")) return { color: "#FF9800", icon: "office" };
+  if (name.includes("department") || name.includes("dept")) return { color: "#2196f3", icon: "department" };
+  return { color: "#2196f3", icon: "department" };
+}
+
+/* ======================================================================
    4. RENDERING — SVG blueprint map
    ====================================================================== */
 const svg = document.getElementById('mapSvg');
 const NS = 'http://www.w3.org/2000/svg';
-function el(tag, attrs){ const e = document.createElementNS(NS, tag); for(const k in attrs) e.setAttribute(k, attrs[k]); return e; }
-
-function drawGrid(){
-  for(let x=0; x<=800; x+=40) svg.appendChild(el('line',{x1:x,y1:0,x2:x,y2:520,class:'grid-line',opacity:0.35}));
-  for(let y=0; y<=520; y+=40) svg.appendChild(el('line',{x1:0,y1:y,x2:800,y2:y,class:'grid-line',opacity:0.35}));
+function el(tag, attrs) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
 }
 
+function drawGrid() {
+  for (let x = 0; x <= 800; x += 40) svg.appendChild(el('line', { x1: x, y1: 0, x2: x, y2: 520, class: 'grid-line', opacity: 0.35 }));
+  for (let y = 0; y <= 520; y += 40) svg.appendChild(el('line', { x1: 0, y1: y, x2: 800, y2: y, class: 'grid-line', opacity: 0.35 }));
+}
 
-function clearActiveStates(){
-  document.querySelectorAll('.node-dot').forEach(d=>{
-    d.classList.remove('active-start','active-end');
+function drawCorridors() {
+  edgesData.forEach(e => {
+    const a = nodeById[e.from_node], b = nodeById[e.to_node];
+    if (!a || !b) return;
+    svg.appendChild(el('line', { x1: a.px, y1: a.py, x2: b.px, y2: b.py, class: 'corridor' }));
   });
 }
-function markActive(id, cls){
-  const g = svg.querySelector(`g[data-id="${id}"]`);
-  if(!g) return;
-  const dot = g.querySelector('rect, circle');
-  if(dot) dot.classList.add(cls);
+
+function drawNodes() {
+  locations.forEach(n => {
+    const cat = categorize(n);
+    const g = el('g', { 'data-id': n.id });
+
+    if (n.type === 'junction') {
+      const dot = el('circle', { cx: n.px, cy: n.py, r: 4, class: 'node-dot junction' });
+      g.appendChild(dot);
+    } else {
+      const dot = el('circle', { cx: n.px, cy: n.py, r: 8, class: 'node-dot room', style: `fill:${cat.color}` });
+      g.appendChild(dot);
+      const label = el('text', { x: n.px, y: n.py - 12, 'text-anchor': 'middle', class: 'node-label' });
+      label.textContent = n.name;
+      g.appendChild(label);
+    }
+
+    g.style.cursor = 'pointer';
+    g.addEventListener('click', () => {
+      if (!fromNode) { setFrom(n); }
+      else { setTo(n); }
+    });
+
+    svg.appendChild(g);
+  });
 }
 
+function renderMap() {
+  svg.innerHTML = '';
+  drawGrid();
+  drawCorridors();
+  drawNodes();
+}
+
+function clearActiveStates() {
+  document.querySelectorAll('.node-dot').forEach(d => {
+    d.classList.remove('active-start', 'active-end');
+  });
+}
+function markActive(id, cls) {
+  const g = svg.querySelector(`g[data-id="${id}"]`);
+  if (!g) return;
+  const dot = g.querySelector('circle, rect');
+  if (dot) dot.classList.add(cls);
+}
+
+function drawRoutePath(pathIds) {
+  if (routeLineEl) { routeLineEl.remove(); routeLineEl = null; }
+  const pts = pathIds.map(id => nodeById[id]).filter(Boolean);
+  if (pts.length < 2) return;
+  const d = pts.map((p, i) => (i === 0 ? `M ${p.px} ${p.py}` : `L ${p.px} ${p.py}`)).join(' ');
+  routeLineEl = el('path', { d, class: 'route-path' });
+  svg.appendChild(routeLineEl);
+  requestAnimationFrame(() => routeLineEl.classList.add('show'));
+}
 
 /* ======================================================================
-   5. UI WIRING — search fields, autocomplete, route + directions
+   5. SEARCH / AUTOCOMPLETE
    ====================================================================== */
 const fromInput = document.getElementById('fromInput');
 const toInput = document.getElementById('toInput');
@@ -508,83 +561,250 @@ const fromSugg = document.getElementById('fromSugg');
 const toSugg = document.getElementById('toSugg');
 const fromField = document.getElementById('fromField');
 const toField = document.getElementById('toField');
-let fromNode = null, toNode = null;
 
-function renderSuggestions(container, input, onPick){
+function searchLocations(keyword) {
+  const k = keyword.trim().toLowerCase();
+  if (!k) return [];
+  return locations.filter(n => n.name.toLowerCase().includes(k)).slice(0, 8);
+}
+
+function renderSuggestions(container, input, onPick) {
+  const results = searchLocations(input.value);
   container.innerHTML = '';
-  const results = searchLocations(input.value).slice(0,6);
-  if(!results.length){ container.classList.remove('show'); return; }
-  results.forEach(n=>{
+  if (!results.length) { container.classList.remove('show'); return; }
+  results.forEach(n => {
     const item = document.createElement('div');
     item.className = 'sugg-item';
-    item.innerHTML = `<span>${n.name}</span>`;
-    item.addEventListener('click', ()=>{ onPick(n); container.classList.remove('show'); });
+    item.innerHTML = `<span>${n.name}</span><span class="tag">${n.type}</span>`;
+    item.addEventListener('click', () => { onPick(n); container.classList.remove('show'); });
     container.appendChild(item);
   });
   container.classList.add('show');
 }
-fromInput.addEventListener('input', ()=> renderSuggestions(fromSugg, fromInput, setFrom));
-toInput.addEventListener('input', ()=> renderSuggestions(toSugg, toInput, setTo));
-document.addEventListener('click', (e)=>{
-  if(!fromField.contains(e.target)) fromSugg.classList.remove('show');
-  if(!toField.contains(e.target)) toSugg.classList.remove('show');
+
+fromInput.addEventListener('input', () => renderSuggestions(fromSugg, fromInput, setFrom));
+toInput.addEventListener('input', () => renderSuggestions(toSugg, toInput, setTo));
+document.addEventListener('click', (e) => {
+  if (!fromField.contains(e.target)) fromSugg.classList.remove('show');
+  if (!toField.contains(e.target)) toSugg.classList.remove('show');
 });
 
-function setFrom(n){ fromNode = n; fromInput.value = n.name; }
-function setTo(n){ toNode = n; toInput.value = n.name; }
+function setFrom(n) {
+  fromNode = n; fromInput.value = n.name;
+  clearActiveStates();
+  markActive(fromNode.id, 'active-start');
+  if (toNode) markActive(toNode.id, 'active-end');
+}
+function setTo(n) {
+  toNode = n; toInput.value = n.name;
+  clearActiveStates();
+  if (fromNode) markActive(fromNode.id, 'active-start');
+  markActive(toNode.id, 'active-end');
+}
 
-document.getElementById('swapBtn').addEventListener('click', ()=>{
+document.getElementById('swapBtn').addEventListener('click', () => {
   const a = fromNode, b = toNode;
   fromNode = b; toNode = a;
   fromInput.value = fromNode ? fromNode.name : '';
   toInput.value = toNode ? toNode.name : '';
+  clearActiveStates();
+  if (fromNode) markActive(fromNode.id, 'active-start');
+  if (toNode) markActive(toNode.id, 'active-end');
 });
 
-document.getElementById('resetBtn').addEventListener('click', ()=>{
+document.getElementById('resetBtn').addEventListener('click', () => {
   fromNode = null; toNode = null;
   fromInput.value = ''; toInput.value = '';
-  if(routeLineEl){ routeLineEl.remove(); routeLineEl = null; }
+  if (routeLineEl) { routeLineEl.remove(); routeLineEl = null; }
   clearActiveStates();
   document.getElementById('summaryBar').style.display = 'none';
   document.getElementById('stepsList').innerHTML = `
     <div class="empty-state">Choose a starting point and destination, or scan a corridor QR code, to see your route.</div>`;
 });
 
-last = document.createElement('div');
-  last.className = 'step';
-  last.innerHTML = `<div class="num">✓</div><div class="txt"><strong>Arrive at ${nodeById[pathIds[pathIds.length-1]].name}</strong><span>You have reached your destination.</span></div>`;
-  stepsList.appendChild(last);
+/* ======================================================================
+   6. FIND ROUTE — calls the backend's /route-by-name (dijkstra / astar)
+   ====================================================================== */
+const algoTag = document.getElementById('algoTag');
+
+function resolveNode(input, picked) {
+  if (picked) return picked;
+  const exact = locations.find(n => n.name.toLowerCase() === input.value.trim().toLowerCase());
+  if (exact) return exact;
+  const matches = searchLocations(input.value);
+  return matches[0] || null;
+}
+
+document.getElementById('findRouteBtn').addEventListener('click', async () => {
+  fromNode = resolveNode(fromInput, fromNode);
+  toNode = resolveNode(toInput, toNode);
+
+  if (!fromNode || !toNode) {
+    document.getElementById('stepsList').innerHTML = `
+      <div class="empty-state">Please choose a valid starting point and destination from the suggestions.</div>`;
+    return;
+  }
+
+  const algo = 'dijkstra';
+  const url = `${API_URL}/route-by-name?start=${encodeURIComponent(fromNode.name)}&end=${encodeURIComponent(toNode.name)}&algo=${algo}`;
+
+  let data;
+  try {
+    const res = await fetch(url);
+    data = await res.json();
+  } catch (e) {
+    document.getElementById('stepsList').innerHTML = `
+      <div class="empty-state">Could not reach the navigation server. Make sure the backend is running at ${API_URL}.</div>`;
+    return;
+  }
+
+  if (data.error || !data.path || !data.path.length) {
+    document.getElementById('stepsList').innerHTML = `
+      <div class="empty-state">No route could be found between these two points.</div>`;
+    document.getElementById('summaryBar').style.display = 'none';
+    return;
+  }
+
+  algoTag.textContent = data.algorithm === 'astar' ? 'A*' : 'Dijkstra';
+  clearActiveStates();
+  markActive(fromNode.id, 'active-start');
+  markActive(toNode.id, 'active-end');
+  drawRoutePath(data.path);
+  renderSteps(data.path, data.cost);
+});
+
+function edgeWeight(aId, bId) {
+  const e = edgesData.find(e =>
+    (e.from_node === aId && e.to_node === bId) || (e.from_node === bId && e.to_node === aId));
+  return e ? e.weight : null;
+}
+
+function renderSteps(pathIds, totalCost) {
+  const stepsList = document.getElementById('stepsList');
+  stepsList.innerHTML = '';
+
+  pathIds.forEach((id, i) => {
+    const node = nodeById[id];
+    if (!node) return;
+    const step = document.createElement('div');
+    step.className = 'step';
+    if (i === 0) {
+      step.innerHTML = `<div class="num">1</div><div class="txt"><strong>Start at ${node.name}</strong><span>Begin your walk here.</span></div>`;
+    } else if (i === pathIds.length - 1) {
+      step.innerHTML = `<div class="num">✓</div><div class="txt"><strong>Arrive at ${node.name}</strong><span>You have reached your destination.</span></div>`;
+    } else {
+      const w = edgeWeight(pathIds[i - 1], id);
+      step.innerHTML = `<div class="num">${i + 1}</div><div class="txt"><strong>Continue to ${node.name}</strong><span>${w ? Math.round(w) + ' m from previous stop' : ''}</span></div>`;
+    }
+    stepsList.appendChild(step);
+  });
+
+  const totalDist = totalCost != null ? totalCost : pathIds.reduce((sum, id, i) => {
+    if (i === 0) return 0;
+    return sum + (edgeWeight(pathIds[i - 1], id) || 0);
+  }, 0);
 
   document.getElementById('summaryBar').style.display = 'flex';
-  document.getElementById('sumDist').textContent = Math.round(totalDist) + ' m (scaled)';
-  document.getElementById('sumTime').textContent = Math.max(1, Math.round(totalDist/70)) + ' min';
+  document.getElementById('sumDist').textContent = Math.round(totalDist) + ' m';
+  document.getElementById('sumTime').textContent = Math.max(1, Math.round(totalDist / 70)) + ' min';
   document.getElementById('sumStops').textContent = pathIds.length;
 }
 
-
-
 /* ======================================================================
-   6. QR SCAN — real camera decode (jsQR) with a no-camera simulate mode
-      QR payload format: "SDNS:<node_id>"  e.g. "SDNS:labAI"
+   7. QR SCAN — real camera decode (jsQR) with a no-camera simulate mode
+      QR payload format: "SDNS:<node_id>"
    ====================================================================== */
 const qrModal = document.getElementById('qrModal');
 const qrStatus = document.getElementById('qrStatus');
-document.getElementById('qrSimulate').addEventListener('click', ()=>{
-  const pool = [
-    'entrance',
-    'admission',
-    'cseDept',
-    'cseLab1',
-    'library',
-    'aimlDept'
-];
-  const pick = pool[Math.floor(Math.random()*pool.length)];
-  handleQrPayload('SDNS:' + pick);
-});
-// Demo QR code chips (stand-ins for physical corridor stickers)
+const qrVideo = document.getElementById('qrVideo');
+const demoCodes = document.getElementById('demoCodes');
+let qrStream = null;
+let qrScanHandle = null;
 
+function handleQrPayload(payload) {
+  const idStr = payload.split(':')[1];
+  const id = parseInt(idStr, 10);
+  const node = nodeById[id];
+  if (!node) {
+    qrStatus.textContent = 'Unrecognized QR code.';
+    return;
+  }
+  setFrom(node);
+  qrStatus.textContent = `Location detected: ${node.name}`;
+  closeQrModal();
+  toInput.focus();
+}
+
+function populateDemoCodes() {
+  demoCodes.innerHTML = '';
+  locations.slice(0, 6).forEach(n => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = n.name;
+    btn.addEventListener('click', () => handleQrPayload('SDNS:' + n.id));
+    demoCodes.appendChild(btn);
+  });
+}
+
+async function openQrModal() {
+  qrModal.classList.add('show');
+  qrStatus.textContent = 'Point your camera at a corridor QR sticker.';
+  try {
+    qrStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    qrVideo.srcObject = qrStream;
+    await qrVideo.play();
+    scanLoop();
+  } catch (e) {
+    qrStatus.textContent = 'Camera unavailable — use "Simulate scan" or a demo code below.';
+  }
+}
+
+function scanLoop() {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  function tick() {
+    if (!qrModal.classList.contains('show')) return;
+    if (qrVideo.readyState === qrVideo.HAVE_ENOUGH_DATA) {
+      canvas.width = qrVideo.videoWidth;
+      canvas.height = qrVideo.videoHeight;
+      ctx.drawImage(qrVideo, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+      if (code && code.data && code.data.startsWith('SDNS:')) {
+        handleQrPayload(code.data);
+        return;
+      }
+    }
+    qrScanHandle = requestAnimationFrame(tick);
+  }
+  qrScanHandle = requestAnimationFrame(tick);
+}
+
+function closeQrModal() {
+  qrModal.classList.remove('show');
+  if (qrScanHandle) cancelAnimationFrame(qrScanHandle);
+  if (qrStream) { qrStream.getTracks().forEach(t => t.stop()); qrStream = null; }
+}
+
+document.getElementById('qrBtn').addEventListener('click', openQrModal);
+document.getElementById('qrClose').addEventListener('click', closeQrModal);
+document.getElementById('qrSimulate').addEventListener('click', () => {
+  if (!locations.length) return;
+  const pick = locations[Math.floor(Math.random() * locations.length)];
+  handleQrPayload('SDNS:' + pick.id);
+});
+
+/* ======================================================================
+   8. INIT
+   ====================================================================== */
+async function init() {
+  await loadLocations();
+  await loadEdges();
+  layoutNodes();
+  renderMap();
+  populateDemoCodes();
+}
+init();
 </script>
 </body>
 </html>
-
-
